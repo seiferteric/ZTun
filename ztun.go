@@ -173,7 +173,7 @@ func main() {
 
 	if len(*sServ) > 0 {
 		serv = false
-		tcpAddr, err := net.ResolveTCPAddr("tcp", fmt.Sprintf("%s:%d", *sServ, *nPort))
+		tcpAddr, err := net.ResolveTCPAddr("tcp4", fmt.Sprintf("%s:%d", *sServ, *nPort))
 		if err != nil {
 			panic(err)
 		}
@@ -205,7 +205,7 @@ func main() {
 	} else {
 
 		serv = true
-		tcpAddr, err := net.ResolveTCPAddr("tcp", fmt.Sprintf("0.0.0.0:%d", *nPort))
+		tcpAddr, err := net.ResolveTCPAddr("tcp4", fmt.Sprintf("0.0.0.0:%d", *nPort))
 		if err != nil {
 			panic(err)
 		}
