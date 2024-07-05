@@ -159,6 +159,9 @@ func main() {
 		if err != nil {
 			break
 		}
+		if i == 999 {
+			panic("Can't allocate tun interface!")
+		}
 	}
 
 	ifce, err := water.New(config)
