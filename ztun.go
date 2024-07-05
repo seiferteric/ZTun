@@ -65,7 +65,7 @@ func HandleTun(ifce *water.Interface) {
 		}
 	}
 }
-func HandleClient(c net.Conn, ifce *water.Interface, c_ip netip.Addr) {
+func HandleRemote(c net.Conn, ifce *water.Interface) {
 	defer c.Close()
 	log.Printf("Serving %s\n", c.RemoteAddr().String())
 	packet := make([]byte, lz4.CompressBlockBound(int(mtu))+HEADER)
@@ -77,7 +77,6 @@ func HandleClient(c net.Conn, ifce *water.Interface, c_ip netip.Addr) {
 		if err != nil {
 			log.Printf("Disconnect %s\n", c.RemoteAddr().String())
 			c.Close()
-			delete(clients, c_ip)
 			return
 		}
 		stream = append(stream, packet[:left]...)
@@ -98,42 +97,16 @@ func HandleClient(c net.Conn, ifce *water.Interface, c_ip netip.Addr) {
 	}
 }
 
-func NewClient(s *net.TCPConn, ifce *water.Interface) {
-
-	defer s.Close()
-	log.Printf("Connected %s\n", s.RemoteAddr().String())
-	packet := make([]byte, lz4.CompressBlockBound(int(mtu))+HEADER)
-	result := make([]byte, mtu)
-	stream := make([]byte, 0)
-	for {
-		left, err := s.Read(packet)
-		if err != nil {
-			panic(err)
-		}
-		stream = append(stream, packet[:left]...)
-
-		for len(stream) > HEADER {
-			bs := binary.LittleEndian.Uint16(stream[:HEADER])
-			if len(stream) < int(bs)+2 {
-				break
-			}
-			n, err := lz4.UncompressBlock(stream[HEADER:bs+HEADER], result)
-			if err != nil {
-				log.Print(err)
-				panic(err)
-			}
-			ifce.Write(result[:n])
-			stream = stream[HEADER+bs:]
-		}
-	}
-
-}
-
 func assign_ip(c net.Conn, start netip.Addr) (netip.Addr, error) {
 	c_ip := start
 	for c_ip.IsValid() {
-		if _, ok := clients[c_ip]; ok {
-			c_ip = c_ip.Next()
+		if client, ok := clients[c_ip]; ok {
+			_, err := client.Write(make([]byte, 0))
+			if err == nil {
+				c_ip = c_ip.Next()
+			} else {
+				break
+			}
 		} else {
 			break
 		}
@@ -144,7 +117,24 @@ func assign_ip(c net.Conn, start netip.Addr) (netip.Addr, error) {
 	}
 	return c_ip, errors.New("out of IPs")
 }
-
+func config_link(name string, nl_addr *netlink.Addr) {
+	link, err := netlink.LinkByName(name)
+	if err != nil {
+		panic(err)
+	}
+	err = netlink.AddrAdd(link, nl_addr)
+	if err != nil {
+		panic(err)
+	}
+	err = netlink.LinkSetMTU(link, int(mtu))
+	if err != nil {
+		panic(err)
+	}
+	err = netlink.LinkSetUp(link)
+	if err != nil {
+		panic(err)
+	}
+}
 func main() {
 
 	clients = make(map[netip.Addr]net.Conn)
@@ -197,10 +187,6 @@ func main() {
 		}
 		c_ip, _ := netip.AddrFromSlice(c_addr[:4])
 		c_pre := netip.PrefixFrom(c_ip, int(c_addr[4]))
-		link, err := netlink.LinkByName(config.Name)
-		if err != nil {
-			panic(err)
-		}
 
 		if err != nil {
 			panic(err)
@@ -209,19 +195,9 @@ func main() {
 		if err != nil {
 			panic(err)
 		}
-		err = netlink.AddrAdd(link, nl_addr)
-		if err != nil {
-			panic(err)
-		}
-		err = netlink.LinkSetMTU(link, int(mtu))
-		if err != nil {
-			panic(err)
-		}
-		err = netlink.LinkSetUp(link)
-		if err != nil {
-			panic(err)
-		}
-		NewClient(s, ifce)
+		config_link(config.Name, nl_addr)
+
+		HandleRemote(s, ifce)
 
 	} else {
 
@@ -237,27 +213,12 @@ func main() {
 		}
 		defer l.Close()
 
-		link, err := netlink.LinkByName(config.Name)
-		if err != nil {
-			panic(err)
-		}
 		nlip, err := netlink.ParseAddr(ipr.String())
 
 		if err != nil {
 			panic(err)
 		}
-		err = netlink.AddrAdd(link, nlip)
-		if err != nil {
-			panic(err)
-		}
-		err = netlink.LinkSetMTU(link, int(mtu))
-		if err != nil {
-			panic(err)
-		}
-		err = netlink.LinkSetUp(link)
-		if err != nil {
-			panic(err)
-		}
+		config_link(config.Name, nlip)
 		for {
 			c, err := l.Accept()
 			if err == nil {
@@ -277,8 +238,9 @@ func main() {
 					if err != nil || n != 5 {
 						c.Close()
 					} else {
-						go HandleClient(c, ifce, c_ip)
 						clients[c_ip] = c
+						go HandleRemote(c, ifce)
+
 					}
 				}
 			} else {
