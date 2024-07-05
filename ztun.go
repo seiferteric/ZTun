@@ -54,12 +54,18 @@ func HandleTun(ifce *water.Interface) {
 		} else {
 			// Extract dest IP from packet bytes
 			dst_ip, _ := netip.AddrFromSlice(packet[16:20])
+			if dst_ip.IsMulticast() {
+				for _, client := range clients {
+					client.Write(result[:zn+2])
+				}
+			} else {
 
-			if client, ok := clients[dst_ip]; ok {
+				if client, ok := clients[dst_ip]; ok {
 
-				// client.Write(bs)
+					// client.Write(bs)
 
-				client.Write(result[:zn+2])
+					client.Write(result[:zn+2])
+				}
 			}
 		}
 	}
