@@ -17,6 +17,9 @@ import (
 )
 
 const MAX_MTU = 9000
+const HEADER = 2
+const DST_IP_START = 16
+const DST_IP_STOP = 20
 
 var clients map[netip.Addr]net.Conn
 var mtu uint
@@ -25,46 +28,38 @@ var serv bool
 
 func HandleTun(ifce *water.Interface) {
 	packet := make([]byte, mtu)
-	result := make([]byte, lz4.CompressBlockBound(int(mtu))+2)
+	result := make([]byte, lz4.CompressBlockBound(int(mtu))+HEADER)
 	for {
 		n, err := ifce.Read(packet)
 		if err != nil {
-			// log.Fatal(err)
 			panic(err)
 		}
-		// log.Printf("Packet Received: %d bytes\n", n)
-		zn, err := lz4.CompressBlock(packet[:n], result[2:], nil)
+		zn, err := lz4.CompressBlock(packet[:n], result[HEADER:], nil)
 		if err != nil {
-			// log.Fatal(err)
 			panic(err)
 		}
 		if zn == 0 {
 			log.Fatal("Could not compress!")
 
 		}
-		bs := make([]byte, 2)
+		bs := make([]byte, HEADER)
 		binary.LittleEndian.PutUint16(bs, uint16(zn))
-		// log.Printf("Packet Compressed: %d bytes\n", zn)
-		// log.Printf("Size: %d, CSize: %d", n, zn)
 		copy(result, bs)
 		if !serv {
-			// server.Write(bs)
-			server.Write(result[:zn+2])
+			server.Write(result[:zn+HEADER])
 
 		} else {
 			// Extract dest IP from packet bytes
-			dst_ip, _ := netip.AddrFromSlice(packet[16:20])
+			dst_ip, _ := netip.AddrFromSlice(packet[DST_IP_START:DST_IP_STOP])
 			if dst_ip.IsMulticast() {
 				for _, client := range clients {
-					client.Write(result[:zn+2])
+					client.Write(result[:zn+HEADER])
 				}
 			} else {
 
 				if client, ok := clients[dst_ip]; ok {
 
-					// client.Write(bs)
-
-					client.Write(result[:zn+2])
+					client.Write(result[:zn+HEADER])
 				}
 			}
 		}
@@ -73,7 +68,7 @@ func HandleTun(ifce *water.Interface) {
 func HandleClient(c net.Conn, ifce *water.Interface, c_ip netip.Addr) {
 	defer c.Close()
 	log.Printf("Serving %s\n", c.RemoteAddr().String())
-	packet := make([]byte, lz4.CompressBlockBound(int(mtu))+2)
+	packet := make([]byte, lz4.CompressBlockBound(int(mtu))+HEADER)
 	result := make([]byte, mtu)
 	stream := make([]byte, 0)
 
@@ -87,21 +82,18 @@ func HandleClient(c net.Conn, ifce *water.Interface, c_ip netip.Addr) {
 		}
 		stream = append(stream, packet[:left]...)
 
-		for len(stream) > 2 {
-			bs := binary.LittleEndian.Uint16(stream[:2])
-			if len(stream) < int(bs)+2 {
-				// log.Printf("HERE %d %d", len(stream), int(bs)+2)
+		for len(stream) > HEADER {
+			bs := binary.LittleEndian.Uint16(stream[:HEADER])
+			if len(stream) < int(bs)+HEADER {
 				break
 			}
-			n, err := lz4.UncompressBlock(stream[2:bs+2], result)
-			// log.Printf("Size: %d, CSize: %d", n, bs)
+			n, err := lz4.UncompressBlock(stream[HEADER:bs+HEADER], result)
 			if err != nil {
 				log.Print(err)
 				panic(err)
 			}
 			ifce.Write(result[:n])
-			stream = stream[2+bs:]
-			// left -= (2 + int(bs))
+			stream = stream[HEADER+bs:]
 		}
 	}
 }
@@ -110,32 +102,28 @@ func NewClient(s *net.TCPConn, ifce *water.Interface) {
 
 	defer s.Close()
 	log.Printf("Connected %s\n", s.RemoteAddr().String())
-	packet := make([]byte, lz4.CompressBlockBound(int(mtu))+2)
+	packet := make([]byte, lz4.CompressBlockBound(int(mtu))+HEADER)
 	result := make([]byte, mtu)
 	stream := make([]byte, 0)
 	for {
 		left, err := s.Read(packet)
 		if err != nil {
-			// log.Print(err)
 			panic(err)
 		}
 		stream = append(stream, packet[:left]...)
 
-		for len(stream) > 2 {
-			bs := binary.LittleEndian.Uint16(stream[:2])
+		for len(stream) > HEADER {
+			bs := binary.LittleEndian.Uint16(stream[:HEADER])
 			if len(stream) < int(bs)+2 {
-				// log.Printf("HERE %d %d", len(stream), int(bs)+2)
 				break
 			}
-			n, err := lz4.UncompressBlock(stream[2:bs+2], result)
-			// log.Printf("Size: %d, CSize: %d", n, bs)
+			n, err := lz4.UncompressBlock(stream[HEADER:bs+HEADER], result)
 			if err != nil {
 				log.Print(err)
 				panic(err)
 			}
 			ifce.Write(result[:n])
-			stream = stream[2+bs:]
-			// left -= (2 + int(bs))
+			stream = stream[HEADER+bs:]
 		}
 	}
 
@@ -161,7 +149,8 @@ func main() {
 
 	clients = make(map[netip.Addr]net.Conn)
 	sSub := flag.String("subnet", "172.168.13.1/24", "Subnet that will be used for network.")
-	sServ := flag.String("server", "", "ztun Server:port to connect to.")
+	sServ := flag.String("server", "", "ztun Server to connect to.")
+	nPort := flag.Uint("port", 2024, "Port to use.")
 	flag.UintVar(&mtu, "mtu", MAX_MTU, "Interface MTU. Larger MTU can help with compression.")
 	flag.Parse()
 	if mtu > MAX_MTU {
@@ -184,7 +173,6 @@ func main() {
 
 	ifce, err := water.New(config)
 	if err != nil {
-		// log.Fatal(err)
 		panic(err)
 	}
 
@@ -192,15 +180,13 @@ func main() {
 
 	if len(*sServ) > 0 {
 		serv = false
-		tcpAddr, err := net.ResolveTCPAddr("tcp", *sServ)
+		tcpAddr, err := net.ResolveTCPAddr("tcp", fmt.Sprintf("%s:%d", *sServ, *nPort))
 		if err != nil {
-			// log.Fatalf("ResolveTCPAddr failed: %s", err.Error())
 			panic(err)
 		}
 
 		s, err := net.DialTCP("tcp4", nil, tcpAddr)
 		if err != nil {
-			// log.Fatalf("Dial failed: %s", err.Error())
 			panic(err)
 		}
 		server = s
@@ -213,12 +199,10 @@ func main() {
 		c_pre := netip.PrefixFrom(c_ip, int(c_addr[4]))
 		link, err := netlink.LinkByName(config.Name)
 		if err != nil {
-			// log.Fatal(err)
 			panic(err)
 		}
 
 		if err != nil {
-			// log.Fatal(err)
 			panic(err)
 		}
 		nl_addr, err := netlink.ParseAddr(c_pre.String())
@@ -242,28 +226,24 @@ func main() {
 	} else {
 
 		serv = true
-		tcpAddr, err := net.ResolveTCPAddr("tcp", "0.0.0.0:2024")
+		tcpAddr, err := net.ResolveTCPAddr("tcp", fmt.Sprintf("0.0.0.0:%d", *nPort))
 		if err != nil {
-			// log.Fatalf("ResolveTCPAddr failed: %s", err.Error())
 			panic(err)
 		}
 		l, err := net.ListenTCP("tcp4", tcpAddr)
 
 		if err != nil {
-			// log.Fatal(err)
 			panic(err)
 		}
 		defer l.Close()
 
 		link, err := netlink.LinkByName(config.Name)
 		if err != nil {
-			// log.Fatal(err)
 			panic(err)
 		}
 		nlip, err := netlink.ParseAddr(ipr.String())
 
 		if err != nil {
-			// log.Fatal(err)
 			panic(err)
 		}
 		err = netlink.AddrAdd(link, nlip)
