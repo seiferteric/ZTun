@@ -4,30 +4,78 @@ ZTun is a simple way to set up a TUN interface between systems that transparentl
 
 ZTun uses lz4 compression which is fast and has reasonably good compression. You can run a ZTun server on one machine and have multiple clients connect to it.
 
+## Usage
+
+### Help:
+
+    $ ./ztun -h
+    Usage of ./ztun:
+    -mtu uint
+            Interface MTU. Larger MTU can help with compression. (default 9000)
+    -port uint
+            Port to use. (default 2024)
+    -server string
+            ztun Server to connect to.
+    -subnet string
+            Subnet that will be used for network. (default "172.168.13.1/24")
+
+### Server:
+
+With defaults, creates a /24 and assignes the first IP in range to the server:
+
+    $ sudo ./ztun 
+    2024/07/05 16:29:18 Serving 192.168.1.3:57742
+
+    $ ip a s ztun0
+    138: ztun0: <POINTOPOINT,MULTICAST,NOARP,UP,LOWER_UP> mtu 9000 qdisc fq_codel state UNKNOWN group default qlen 500
+        link/none 
+        inet 172.168.13.1/24 brd 172.168.13.255 scope global ztun0
+        valid_lft forever preferred_lft forever
+        inet6 fe80::8575:451f:c78:5247/64 scope link stable-privacy proto kernel_ll 
+        valid_lft forever preferred_lft forever
+
+
+### Client:
+
+The client connects to the server and gets assigned an IP from the server:
+
+    $ sudo ./ztun --server=192.168.1.5 
+    2024/07/05 23:29:18 Serving 192.168.1.5:2024
+
+    $ ip a s ztun0
+    133: ztun0: <POINTOPOINT,MULTICAST,NOARP,UP,LOWER_UP> mtu 9000 qdisc fq_codel state UNKNOWN group default qlen 500
+        link/none 
+        inet 172.168.13.2/24 brd 172.168.13.255 scope global ztun0
+        valid_lft forever preferred_lft forever
+        inet6 fe80::24c4:e774:4c30:a65/64 scope link stable-privacy 
+        valid_lft forever preferred_lft forever
+
+
 ## Testing Results
 
 On a 1gbps LAN connection between two machines with iperf3 with repeating payload (helps with compression):
 
     $ iperf3 -c 172.168.13.1 -p 5201 --repeating-payload
     Connecting to host 172.168.13.1, port 5201
-    [  5] local 172.168.13.2 port 35148 connected to 172.168.13.1 port 5201
+    [  5] local 172.168.13.2 port 36154 connected to 172.168.13.1 port 5201
     [ ID] Interval           Transfer     Bitrate         Retr  Cwnd
-    [  5]   0.00-1.00   sec   489 MBytes  4.10 Gbits/sec    0   3.74 MBytes       
-    [  5]   1.00-2.00   sec   485 MBytes  4.07 Gbits/sec    0   3.93 MBytes       
-    [  5]   2.00-3.00   sec   509 MBytes  4.27 Gbits/sec    0   3.93 MBytes       
-    [  5]   3.00-4.00   sec   495 MBytes  4.15 Gbits/sec    0   3.93 MBytes       
-    [  5]   4.00-5.00   sec   480 MBytes  4.03 Gbits/sec    0   3.93 MBytes       
-    [  5]   5.00-6.00   sec   510 MBytes  4.27 Gbits/sec    0   3.93 MBytes       
-    [  5]   6.00-7.00   sec   489 MBytes  4.10 Gbits/sec    0   3.93 MBytes       
-    [  5]   7.00-8.00   sec   480 MBytes  4.02 Gbits/sec    0   3.93 MBytes       
-    [  5]   8.00-9.00   sec   528 MBytes  4.43 Gbits/sec    0   3.93 MBytes       
-    [  5]   9.00-10.00  sec   530 MBytes  4.45 Gbits/sec    0   3.93 MBytes       
+    [  5]   0.00-1.00   sec   521 MBytes  4.37 Gbits/sec    0   3.82 MBytes
+    [  5]   1.00-2.00   sec   486 MBytes  4.08 Gbits/sec    0   3.82 MBytes
+    [  5]   2.00-3.00   sec   499 MBytes  4.18 Gbits/sec    0   3.82 MBytes
+    [  5]   3.00-4.00   sec   508 MBytes  4.26 Gbits/sec    0   3.82 MBytes
+    [  5]   4.00-5.00   sec   526 MBytes  4.41 Gbits/sec    0   3.82 MBytes
+    [  5]   5.00-6.00   sec   506 MBytes  4.25 Gbits/sec    0   3.82 MBytes
+    [  5]   6.00-7.00   sec   500 MBytes  4.19 Gbits/sec    0   3.82 MBytes
+    [  5]   7.00-8.00   sec   529 MBytes  4.43 Gbits/sec    0   3.82 MBytes
+    [  5]   8.00-9.00   sec   512 MBytes  4.30 Gbits/sec    0   3.82 MBytes
+    [  5]   9.00-10.00  sec   550 MBytes  4.62 Gbits/sec    0   3.82 MBytes
     - - - - - - - - - - - - - - - - - - - - - - - - -
     [ ID] Interval           Transfer     Bitrate         Retr
-    [  5]   0.00-10.00  sec  4.88 GBytes  4.19 Gbits/sec    0             sender
-    [  5]   0.00-10.01  sec  4.88 GBytes  4.19 Gbits/sec                  receiver
-
+    [  5]   0.00-10.00  sec  5.02 GBytes  4.31 Gbits/sec    0             sender
+    [  5]   0.00-10.01  sec  5.02 GBytes  4.31 Gbits/sec                  receiver
+    
     iperf Done.
+
 
 With randomized payload (bad for compression) it is slightly slower than native:
 
@@ -77,50 +125,4 @@ Native:
     iperf Done.
 
 
-
-## Usage
-
-### Help:
-
-    $ ./ztun -h
-    Usage of ./ztun:
-    -mtu uint
-            Interface MTU. Larger MTU can help with compression. (default 9000)
-    -port uint
-            Port to use. (default 2024)
-    -server string
-            ztun Server to connect to.
-    -subnet string
-            Subnet that will be used for network. (default "172.168.13.1/24")
-
-### Server:
-
-With defaults, creates a /24 and assignes the first IP in range to the server:
-
-    $ sudo ./ztun 
-    2024/07/05 16:29:18 Serving 192.168.1.3:57742
-
-    $ ip a s ztun0
-    138: ztun0: <POINTOPOINT,MULTICAST,NOARP,UP,LOWER_UP> mtu 9000 qdisc fq_codel state UNKNOWN group default qlen 500
-        link/none 
-        inet 172.168.13.1/24 brd 172.168.13.255 scope global ztun0
-        valid_lft forever preferred_lft forever
-        inet6 fe80::8575:451f:c78:5247/64 scope link stable-privacy proto kernel_ll 
-        valid_lft forever preferred_lft forever
-
-
-### Client:
-
-The client connects to the server and gets assigned an IP from the server:
-
-    $ sudo ./ztun --server=192.168.1.5 
-    2024/07/05 23:29:18 Serving 192.168.1.5:2024
-
-    $ ip a s ztun0
-    133: ztun0: <POINTOPOINT,MULTICAST,NOARP,UP,LOWER_UP> mtu 9000 qdisc fq_codel state UNKNOWN group default qlen 500
-        link/none 
-        inet 172.168.13.2/24 brd 172.168.13.255 scope global ztun0
-        valid_lft forever preferred_lft forever
-        inet6 fe80::24c4:e774:4c30:a65/64 scope link stable-privacy 
-        valid_lft forever preferred_lft forever
 
