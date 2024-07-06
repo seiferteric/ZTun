@@ -53,7 +53,7 @@ The client connects to the server and gets assigned an IP from the server:
 
 ## Testing Results
 
-On a 1gbps LAN connection between two machines with iperf3 with repeating payload (helps with compression):
+On a 1Gbps LAN connection between two machines with iperf3 with repeating payload (helps with compression) we see significant speedup of ~4.3Gbps:
 
     $ iperf3 -c 172.168.13.1 -p 5201 --repeating-payload
     Connecting to host 172.168.13.1, port 5201
