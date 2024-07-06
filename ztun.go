@@ -29,20 +29,13 @@ var serv bool
 func HandleTun(ifce *water.Interface) {
     packet := make([]byte, mtu)
     result := make([]byte, lz4.CompressBlockBound(int(mtu))+HEADER)
+    bs := make([]byte, HEADER)
     for {
         n, err := ifce.Read(packet)
         if err != nil {
             panic(err)
         }
-        zn, err := lz4.CompressBlock(packet[:n], result[HEADER:], nil)
-        if err != nil {
-            panic(err)
-        }
-        if zn == 0 {
-            log.Fatal("Could not compress!")
-
-        }
-        bs := make([]byte, HEADER)
+        zn, _ := lz4.CompressBlock(packet[:n], result[HEADER:], nil)
         binary.LittleEndian.PutUint16(bs, uint16(zn))
         copy(result, bs)
         if !serv {
@@ -67,7 +60,6 @@ func HandleTun(ifce *water.Interface) {
 }
 func HandleRemote(c net.Conn, ifce *water.Interface) {
     defer c.Close()
-    log.Printf("Serving %s\n", c.RemoteAddr().String())
     packet := make([]byte, lz4.CompressBlockBound(int(mtu))+HEADER)
     result := make([]byte, mtu)
     stream := make([]byte, 0)
@@ -89,10 +81,11 @@ func HandleRemote(c net.Conn, ifce *water.Interface) {
             n, err := lz4.UncompressBlock(stream[HEADER:bs+HEADER], result)
             if err != nil {
                 log.Print(err)
-                panic(err)
+                stream = stream[HEADER+bs:]
+                break
             }
-            ifce.Write(result[:n])
             stream = stream[HEADER+bs:]
+            ifce.Write(result[:n])
         }
     }
 }
@@ -200,6 +193,7 @@ func main() {
         }
         config_link(config.Name, nl_addr)
 
+        log.Printf("Connected %s\n", s.RemoteAddr().String())
         HandleRemote(s, ifce)
 
     } else {
@@ -241,6 +235,7 @@ func main() {
                     if err != nil || n != 5 {
                         c.Close()
                     } else {
+                        log.Printf("Serving %s\n", c.RemoteAddr().String())
                         clients[c_ip] = c
                         go HandleRemote(c, ifce)
 
